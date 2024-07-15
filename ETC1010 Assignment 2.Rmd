@@ -1,0 +1,761 @@
+---
+title: "Are Starbucks drinks healthy?"
+author: "Joshua Hudson"
+date: "`r Sys.Date()`"
+output: 
+  flexdashboard::flex_dashboard:
+    vertical_layout: scroll
+    orientation: rows
+    source_code: embed
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r libraries, load data}
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(rwalkr)
+library(naniar)
+library(visdat)
+library(plotly)
+library(broom)
+library(rpart)
+library(rpart.plot)
+library(reshape2)
+library(flexdashboard)
+library(ggpubr)
+starbucks <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-12-21/starbucks.csv')
+
+```
+Introduction {data-icon="fa-address-book"}
+===================================== 
+
+Row {data-width = 600}
+-----
+### **Introduction**
+The world wide conglomerate Starbucks has taken over the world becoming the largest coffeehouse chain in the world. Founded in 1971 by Jerry Baldwin, Gordon Bowker, and Zev Siegl, Starbucks offered high quality coffee and equipment, and slowly grew its market.
+Nowadays it has become a staple of the drinks industry, however people have become more health conscious and are aware of the health risks associated with high sugar, high fat and calorie dense food and drinks. To combat this shift in society's attitude Starbucks attempted to rebrand their menu by adding a number of healthier options. However, are these drinks actually a healthier option for consumers to drink, or is it a rushed attempt by Starbucks to capitalise on a change in people's opinions on what they eat and drink.
+This report will help determine whether the new ‘healthy’ drinks at Starbucks are really a healthy option for customers, as well as analysing what drinks are the best to drink if a customer wants to drink a healthier option. (Britannica, 2023)
+
+The data set 'Starbucks' obtained for this project was from Tidy Tuesday (Github, 2021)
+
+Row {data-width = 600}
+-----
+
+### **What is a healthy drink?**
+It is hard to define whether a drink is healthy or not. The Centers for Disease Control and Prevention defines a healthy drink as something that is low in fats, low in sugar, and low in cholesterol (Healthy eating for a healthy weight, 2023). Total calories also plays an important role in whether a drink is perceived as healthy, because in order to lose weight you need to be in a calorie deficit. Having a high sugar and cholesterol intake can lead to health implication such as obesity, heart disease, and cardiovascular disease. Some fats can be healthy for you and are essential in a healthy diet, but fats like trans and saturated fats are unhealthy and can cause heart disease and clogging of arteries. Using this health information, this report will help define whether drinks at Starbucks is a healthy option and what drinks are the healthier choice. 
+
+Row {data-width = 600}
+-----
+
+### **Parts of the Report:**
+
+* Part 1: The way to lose weight is to be in a calorie deficit. Customers who are seeking a healthier option are likely to opt for a lower calorie drink. Less calories is not always a good measure of whether a drink  is healthy. There are many other factors that can make a drink healthy or not.
+
+* Part 2: Starbucks main advertising point for their healthier drinks are their low calories. How are the calories in Starbucks drinks made up of, and from just the number of calories can you assume whether a drink is healthy or not.
+
+* Part 3: One of the main ingredients at Starbucks is milk. Starbucks offers 5 different types of milk, as well as a no milk option for many of their drinks How does the type of milk influence the health of drinks?
+
+Row {data-width = 600}
+-----
+
+![(Starbucks image 1)](C:\Users\Joshua Hudson\Documents\Assignment 2\1_nIgYAOgnGhljP-IIEOSbcA.jpg)
+
+
+Data Exploration and Cleaning
+=======================================================================
+{.sidebar}
+-------------------------------------
+#### **Goals of cleaning and exploring**
+Before modeling or analysis of the data can occur. The data must first be examined and cleaned to ensure that it can be used in later stages. This involves looking at the dimensions, variables and observations. Exploring the types of data in the dataset. Ensuring that there are no missing values. Finally, new collumns are added to help with modelling and analysis of the data
+
+Row {.tabset data-height=100}
+------
+### **The Starbucks data set has `r ncol(starbucks)` variables and  `r nrow(starbucks)`.**
+```{r}
+dim(starbucks)
+```
+Row {.tabset data-height=800}
+------
+### **There are a total of 93 types of base drinks that are sold at Starbucks. These drinks have a range of sizes, milk types, and whether whip is added.**
+```{r data exploration}
+unique(starbucks$product_name)
+```
+Row {.tabset data-height=800}
+------
+### **Looking at the data types, the data is split into either being a character or number. However fiber_g and trans_fat_g are characters when they should be numbers, as the data is represented as "number". This needs to be changed, so the data can be used in calculations and modelling.**
+```{r}
+str(starbucks)
+```
+
+
+```{r clean data}
+starbucks$trans_fat_g <- as.numeric(starbucks$trans_fat_g)
+starbucks$fiber_g <- as.numeric(starbucks$fiber_g)
+```
+Row {.tabset data-height=550}
+------
+### **Originally looking at the data there is no missing values in the Starbucks dataset.**
+```{r}
+vis_miss(starbucks)
+```
+
+Row {.tabset data-height=550}
+------
+### **There may be no Na values, however when observing the unique values of the serv_size_ml variable there are some values that are 0. This is not possible as a drink can not be 0 ml. Therefore we should treat these observations as missing values. If possible we can impute the data in to rectify this.**
+
+```{r}
+unique(starbucks$serv_size_m_l)
+drinks_0_ml <- starbucks %>% filter(serv_size_m_l == 0)
+drinks_0_ml
+```
+Row {.tabset data-height=550}
+------
+### **Since only 0.2% of the data is missing, which is a small amount we can drop the values without it having major impacts on later modeling and exploratory analysis. There is no need to impute the values due to them being so small.**
+```{r Imputing}
+starbucks$serv_size_m_l <- replace(starbucks$serv_size_m_l, starbucks$serv_size_m_l == 0, NA)
+vis_miss(starbucks)
+```
+
+```{r}
+starbucks <- na.omit(starbucks)
+invisible(vis_miss(starbucks))
+
+```
+Row {.tabset data-height=300}
+------
+### **One of the limitations of exploring and comparing the drinks is that each drink is a different size. To combat this, new variables will be added to find the per_ml value of the original variables. Through this it will allow the drinks to be compared against each other fairly.**
+```{r new data}
+x <- c("calories", "total_fat_g", "saturated_fat_g", "trans_fat_g", "cholesterol_mg",
+       "sodium_mg", "total_carbs_g", "fiber_g", "sugar_g", "caffeine_mg")
+
+starbucks <- starbucks %>%
+  mutate(across(all_of(x), ~ . / serv_size_m_l, .names = "{.col}_per_ml"))
+  
+names(starbucks)
+```
+Part 1.1
+=======================================================================
+{.sidebar data-width=350}
+-------------------------------------
+> **Calories in Starbucks drinks**
+
+#### *What is a healthy drink based on calories?*
+
+Calories are an important nutritional information that many people keep track of. The only way for a person to loose weight is for that person to be in a calorie deficit and therefore many people view it as an important health measure. Starbucks claims in its advertising that a healthy drink is under 200 calories. Using this claim, we can see if Starbucks drinks are really healthy, as well as comparing the calories of the drinks to other drinks and health data. One of the main way to decrease calories is to eat and drink less, therefore having a smaller serving or drink size will likely decrease the amount of calories being consumed.
+
+#### *Short drinks*
+
+Short drinks are one of the most popular small drinks at Starbucks. There are 37 types of short drinks sold at Starbucks, ranging between 0 and 222 calories. This means that majority of small drinks would be considered healthy drinks as 75% of short drinks are below 92 calories.
+
+#### *Tall drinks*
+
+Tall drinks are also a popular choice of drink. However tall drinks also have a lot more calories compared to short drinks, due to their size. This results in an increase in nearly double the amount of calories in some of the drinks. Many people would want to get a larger drink in order to drink and enjoy more. Doing so would likely mean that some of the drinks such as frappuccino's and chocolate drinks exceed the 200 calorie range set by Starbucks for a drink to be healthy.
+
+#### *Drinks per ml*
+
+In order to combat drink sizes limiting the ability to determine which drink would have the least calories, the calories per ml can be used to determine which drinks independent of size has the least size. As highlighted in the graph, as the same with the short and tall drinks teas and coffees have the least calories per ml, with many of the teas having nearly zero calories per ml. Similarly latte's, frappuccino's, and mocha's have the most calories, with the Whit Hot Chocolate having 0.9115 calories per ml.
+
+#### *Conclusion*
+
+From using calories as a basis for health the best drinks to get at Starbucks would be teas, as they have close to zero calories. Other drinks such as some coffees also have minimal calories. However Starbucks drinks as a whole are not very healthy. This is seen in the Distribution of Starbucks Calories. Over half the drinks having over 200 calories. Therefore a majority of drinks at Starbucks are not considered healthy by their own standard, and 100 drinks having more calories than a can of coke. Overall it is best to get a tea of any size, or limiting the drink to a short size if you are planning on getting any other type of drink if calories are your main concern.
+
+Row {.tabset data-height=600}
+---------
+### **Calories short drinks**
+```{r}
+starbucks_callories <- starbucks %>%
+  arrange(calories)
+
+
+average_short_calories <- starbucks %>%
+  filter(size == "short") %>%
+  group_by(product_name) %>%
+  summarize(average_calories_short = mean(calories, na.rm = TRUE))
+plot <- ggplot(average_short_calories, aes(x = reorder(product_name, average_calories_short), y = average_calories_short)) +
+  geom_col(fill = "red") +
+  labs(x = "Product Name", y = "Calories", title = "Starbucks Average Calories for Short drinks") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+plot <- ggplotly(plot, tooltip = "text")
+plot <- plot %>%
+  style(
+    hoverinfo = "x+y+text",
+    text = ~paste("Product Name: ", product_name, "<br>Cal per ml: ", average_calories_short, "cal")
+  )
+plot
+  
+```
+### **Calories tall drinks**
+
+```{r}
+average_tall_calories <- starbucks %>%
+  filter(size == "tall") %>%
+  group_by(product_name) %>%
+  summarize(average_calories_tall = mean(calories, na.rm = TRUE))
+plot <- ggplot(average_tall_calories, aes(x = reorder(product_name, average_calories_tall), y = average_calories_tall)) +
+  geom_col(fill = "blue") +
+  labs(x = "Product Name", y = "Calories", title = "Starbucks Average Calories for Tall drinks") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 0))
+plot <- ggplotly(plot, tooltip = "text")
+plot <- plot %>%
+  style(
+    hoverinfo = "x+y+text",
+    text = ~paste("Product Name: ", product_name, "<br>Cal per ml: ", average_calories_tall, "cal")
+  )
+plot
+```
+### **Calories per ml**
+
+```{r}
+starbucks_per_calories <- starbucks %>%
+  group_by(product_name) %>%
+  arrange(calories_per_ml) %>%
+  summarize(average_calories_per_ml = mean(calories_per_ml, na.rm = TRUE))
+
+plot <- ggplot(starbucks_per_calories, aes(x = reorder(product_name, average_calories_per_ml), y = average_calories_per_ml)) +
+  geom_col(fill = "dark green", color = "black") +
+  labs(x = "Product Name", y = "Calories per ml", title = "Starbucks Average Calories per ml") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 0))
+plot <- ggplotly(plot, tooltip = "text")
+plot <- plot %>%
+  style(
+    hoverinfo = "x+y+text",
+    text = ~paste("Product Name: ", product_name, "<br>Cal per ml: ", average_calories_per_ml, "cal")
+  )
+plot
+
+```
+Row {data-width = 600}
+-----
+```{r}
+summary(average_short_calories)
+summary(average_tall_calories)
+summary(starbucks_per_calories)
+
+histogram_calories <- ggplot(starbucks, aes(x = calories)) +
+  geom_histogram(binwidth = 50, fill = "orange", color = "black") +
+  labs(x = "Calories", y = "Frequency", title = "Distribution of Starbucks Calories") +
+  theme_minimal()
+
+histogram_calories <- ggplotly(histogram_calories, tooltip = "text")
+histogram_calories <- histogram_calories %>%
+  style(
+    hoverinfo = "x+y",
+    text = ~paste("Calories: ", calories)
+  )
+
+histogram_calories
+```
+Part 1.2
+=======================================================================
+{.sidebar data-width=350}
+-------------------------------------
+> **Fat in Starbucks drinks**
+
+#### *What is a healthy drink based on Fat?*
+
+Fat is essential in the human diet, but it is a Macronutrient that should be had in small amounts. A person having too much fat in their diet is unhealthy and may cause health risks. That is why when choosing a healthy drink, you want to choose a drink that is low in fat.
+
+
+
+#### *Drinks based on Fat per ml*
+
+From the average of each drinks fat per ml, similar to calories, drinks such as teas and coffees have minimal fat compared to other drinks. Drinks such as Lattes, and Mocha's have between 0.01 and 0.03 grams of fat per ml. This is a substantial amount of fat compared to the other drinks. 
+
+#### *Fat and Whip*
+
+One of the main contributors to the amount of fat in a drink is whether there is whip on the drink or not. This is likely because of the high amounts of fat in cream. This is seen in comparing the amount of fat in drinks with whip and non whip, where drinks with whip nearly have double the amount of fat. This is seen with White Hot Chocolate increasing from a 0.025 average to a 0.0425 grams per ml.
+
+#### *Whip modeling*
+
+From the analysis of fat, whip is shown to cause an increase in fat. Examining the other health implications of having whip, it is seen in the scatter plot that having a high amount of sugar and fat often means that there is whip in the drink. Running a decision tree, you can determine with 97% accuracy that drinks with more than 0.019 fat per ml, and drinks with more than 0.026 grams of sugar will have whip in it. This means that adding whip to a drink will almost certainly mean that the drink will be unhealthy.
+
+#### *Conclusion*
+
+Drinks such tea and as some coffees also have minimal fat, just like calories. This means that these are the best drinks to have in order to have a low fat intake. It is also highlighted that adding whip to a drink will result in a substantial increase in fat, making the drinks unhealthy. This is confirmed with a decision tree confirming that high sugar and fat drinks all have whip added.
+
+Row {.tabset data-height=600}
+------
+### **Average Fat per ml**
+ 
+```{r}
+starbucks_per_fat <- starbucks %>%
+  group_by(product_name) %>%
+  arrange(total_fat_g_per_ml) %>%
+  summarize(average_fat_per_ml = mean(total_fat_g_per_ml, na.rm = TRUE))
+
+```
+
+```{r}
+plot <- ggplot(starbucks_per_fat, aes(x = reorder(product_name, average_fat_per_ml), y = average_fat_per_ml)) +
+  geom_col(fill = "orange") +
+  labs(x = "Product Name", y = "Fat per ml (grams)", title = "Starbucks Average Fat per ml") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+plot <- ggplotly(plot, tooltip = "text")
+plot <- plot %>%
+  style(
+    hoverinfo = "x+y+text",
+    text = ~paste("Product Name: ", product_name, "<br>Fat per ml: ", average_fat_per_ml, " grams")
+  )
+plot
+  
+```
+
+### **Whip and fat**
+```{r}
+starbucks_per_fat_whip <- starbucks %>%
+  group_by(product_name, whip) %>%
+  arrange(total_fat_g_per_ml) %>%
+  summarize(average_fat_per_ml = mean(total_fat_g_per_ml, na.rm = TRUE)) %>%
+  filter(average_fat_per_ml >=0.001)
+
+
+ 
+
+plot <- ggplot(starbucks_per_fat_whip, aes(x = reorder(product_name, average_fat_per_ml), y = average_fat_per_ml, fill = factor(whip))) +
+  geom_col(position = "dodge") +
+  labs(x = "Product Name", y = "Fat per ml (grams)", title = "Starbucks Average Fat per ml") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 0)) +
+  scale_fill_manual(values = c("0" = "light blue", "1" = "dark green"), labels = c("Without Whip", "With Whip")) +
+  facet_wrap(~ whip, nrow = 1)
+
+
+plot <- ggplotly(plot)
+plot <- ggplotly(plot, height = 600, width = 2400)
+plot <- plot %>%
+  style(
+    hoverinfo = "x+y+text",
+    text = ~paste("Product Name: ", product_name, "<br>With Whip: ", whip, "<br>Fat per ml: ", average_fat_per_ml, " grams")
+  )
+plot
+```
+Row {.tabset data-height=600}
+------
+
+### **Whip based on Sugar and Fat**
+
+```{r}
+starbucks_fat_sugar <- starbucks %>%
+  group_by(product_name, whip) %>%
+  summarize(average_fat_per_ml = mean(total_fat_g_per_ml, na.rm = TRUE),
+  average_sugar_per_ml = mean(sugar_g_per_ml, na.rm = TRUE))
+  
+
+ggplot(starbucks_fat_sugar, aes(x = average_fat_per_ml, y = average_sugar_per_ml, color = factor(whip))) +
+  geom_point() +
+  labs(x = "Fat (grams/ml)", y = "Sugar (grams)", title = "Scatterplot of Fat vs. Sugar") +
+  scale_color_manual(values = c("0" = "light blue", "1" = "dark green"), labels = c("Without Whip", "With Whip")) +
+  theme_minimal()
+```
+
+### **Decision tree**
+
+```{r}
+df_rp <- rpart(whip~average_sugar_per_ml+average_fat_per_ml, data=starbucks_fat_sugar)
+rpart.plot(df_rp)
+```
+
+### **Confusion matrix**
+
+```{r}
+df_rp <- rpart(whip~average_sugar_per_ml+average_fat_per_ml, data=starbucks_fat_sugar, method = "class")
+predicted_whip <- predict(df_rp, starbucks_fat_sugar, type = "class")
+confusion_matrix <- table(predicted_whip, starbucks_fat_sugar$whip)
+confusion_matrix
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+accuracy
+```
+Part 1.3
+=======================================================================
+
+{.sidebar data-width=350}
+------
+> **Sugar**
+
+Considering the popular unhealthy soft drink coke has 38 grams of sugar, and that a small drink has a mean of 8grams of sugar and a maximum of 35 grams of sugar. For a tall drink it has a mean of 18 grams of sugar. Considering the recommended daily intake of sugar is 50grams for an adult, many of the drinks at Starbucks can be considered unhealthy due to the high amount of sugar content. However, as mentioned before, this is not always the case, drinks such as tea and coffee with no add ons have very low sugar and if a customer is wanting to have a healthy drink with low sugar they should get them.
+<img src="C:\Users\Joshua Hudson\Documents\Assignment 2\starbucks_sugar.jpeg" width="350" height="200">
+<figcaption>(Horan, 2018).</figcaption>
+
+Row {.tabset data-height=800}
+------
+### **Sugar Short Drinks**
+
+```{r}
+starbucks_sugar <- starbucks %>%
+  arrange(sugar_g)
+
+
+average_short_sugar <- starbucks %>%
+  filter(size == "short") %>%
+  group_by(product_name) %>%
+  summarize(average_sugar = mean(sugar_g, na.rm = TRUE))
+
+summary(average_short_sugar)
+
+plot <- ggplot(average_short_sugar, aes(x = reorder(product_name, average_sugar), y = average_sugar)) +
+  geom_col(fill = "red") +
+  labs(x = "Product Name", y = "Sugar", title = "Starbucks Average Sugar for Short drinks") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+plot <- ggplotly(plot, tooltip = "text", height = 600)
+plot <- plot %>%
+  style(
+    hoverinfo = "x+y+text",
+    text = ~paste("Product Name: ", product_name, "<br>Sugar per ml: ", average_sugar, "cal")
+  )
+plot
+```
+
+### **Sugar Tall Drinks**
+
+```{r}
+starbucks_sugar <- starbucks %>%
+  arrange(sugar_g)
+
+
+average_tall_sugar <- starbucks %>%
+  filter(size == "tall") %>%
+  group_by(product_name) %>%
+  summarize(average_sugar = mean(sugar_g, na.rm = TRUE))
+summary(average_tall_sugar)
+plot <- ggplot(average_short_sugar, aes(x = reorder(product_name, average_sugar), y = average_sugar)) +
+  geom_col(fill = "dark green") +
+  labs(x = "Product Name", y = "Sugar", title = "Starbucks Average Sugar for tall drinks") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+plot <- ggplotly(plot, tooltip = "text", height = 600)
+plot <- plot %>%
+  style(
+    hoverinfo = "x+y+text",
+    text = ~paste("Product Name: ", product_name, "<br>Sugar per ml: ", average_sugar, "cal")
+  )
+plot
+```
+
+### **Sugar per ml Drinks**
+
+```{r}
+starbucks_per_sugar <- starbucks %>%
+  group_by(product_name) %>%
+  arrange(sugar_g_per_ml) %>%
+  summarize(average_sugar_per_ml = mean(sugar_g_per_ml, na.rm = TRUE))
+
+
+summary(starbucks_per_sugar)
+
+
+
+plot <- ggplot(starbucks_per_sugar, aes(x = reorder(product_name, average_sugar_per_ml), y = average_sugar_per_ml)) +
+  geom_col() +
+  labs(x = "Product Name", y = "Sugar per ml (grams)", title = "Starbucks Average Sugar per ml") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+plot <- ggplotly(plot, tooltip = "text", height = 600)
+plot <- plot %>%
+  style(
+    hoverinfo = "x+y+text",
+    text = ~paste("Product Name: ", product_name, "<br>Sugar per ml: ", average_sugar, " grams")
+  )
+plot
+```
+
+
+Part 1.4
+=======================================================================
+{.sidebar}
+-------------------------------------
+> **Cholesterol**
+
+Cholesterol levels play an important part in maintaining a healthy body. One of the things that impacts a persons cholesterol level is the intake of cholesterol from food. When choosing food, you want food that is low in cholesterol, as high cholesterol levels have been linked to heart disease. Because of this when choosing a healthy drink at Starbucks you want to have a drink that has low cholesterol. Form the data it shows that teas and coffees have very low cholesterol per ml, just as seen from the previous investigations into other Macronutrients.   
+
+Row {.tabset data-height=800}
+-----
+
+### **Summary of Cholesterol**
+```{r}
+starbucks_per_cholesterol <- starbucks %>%
+  group_by(product_name) %>%
+  arrange(cholesterol_mg_per_ml) %>%
+  summarize(average_cholesterol_per_ml = mean(cholesterol_mg_per_ml, na.rm = TRUE))
+
+
+summary(starbucks_per_cholesterol)
+```
+
+<div style="float: left; margin-right: 20px;">
+  <img src="C:\Users\Joshua Hudson\Documents\Assignment 2\starbucks_drinks.jpeg" width="800" height="400">
+<figcaption>(Yahoo, 2023)</figcaption>
+</div>
+
+
+### **Cholesterol and drinks**
+
+```{r}
+plot <- ggplot(starbucks_per_cholesterol, aes(x = reorder(product_name, average_cholesterol_per_ml), y = average_cholesterol_per_ml)) +
+  geom_col(fill = "dark green") +
+  labs(x = "Product Name", y = "holesterol per ml (mg)", title = "Starbucks Average Cholesterol per ml") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+plot <- ggplotly(plot, tooltip = "text")
+plot <- plot %>%
+  style(
+    hoverinfo = "x+y+text",
+    text = ~paste("Product Name: ", product_name, "<br>Cholesterol per ml: ", average_sugar, " miligrams")
+  )
+plot
+```
+
+Part 2
+=======================================================================
+{.sidebar data-width=500}
+-------------------------------------
+> **Modelling Calories**
+
+What results in a drink having high or low calories? What Macronutrients result in high calories? From just the calories can we determine whether a drink will be healthy in other departments. This can be done by running a linear regression model and multivariable linear regression.
+
+> **Heat Map**
+
+The heat map shows the correlations between all the macronutrients. It highlights that there is a strong linear relationship between most of the variables and calories. Sugar, saturated fat, sodium and carbohydrates all have a high correlation value, indicating a strong linear relationship. Variables such as fiber and caffeine do not have a high correlation, so it is expected in a linear model they will not have a significant influence on calories.
+
+> **Single variable linear modelling**
+
+Since the heat map shows that the macronutrients have a linear relationship with calories, as seen with the high correlation values. Using a p-value of 0.05, all the macronutrients have a p-value much less than that. This means that we can conclude that having an amount of any of sugar, saturated fat, trans fat, sodium, carbohydrates, fiber, and caffeine, will have a significant affect on the amount of calories in a drink. However this only shows a single variables influence on a calories, and an improved model can be obtained if a multivariable model is run.   
+
+> **Multivariable Linear modelling**
+
+Running a multivariable model allows us to investigate how well all the macronutrients make up calories. The optimal multivariable model involves the macronutrients: sugar_g, saturated_fat_g, trans_fat_g, sodium_mg, total_carbs_g. fiber_g, caffeine_mg. This model has an adjusted R squared score of 0.9722, which indicates that this model can explain 97.2% of the variance in calories. This is very high, indicating a good model. A F-statistic score of 5574 also indicates that the model is very strong. By looking at the coefficients of the variables we can determine whether buying a drink just based on calories, as advertised by Starbucks, will result in a healthy drink. The highest coefficient is trans_fat_g. The values for trans fat range between 0 and 2 grams, indicating that any trans fat in a drink will result in a higher calorie drink. Therefore, selecting a drink with a high amount of calories will likely result in there being a high amount a trans fat, which is not good for the consumer. This is similarly seen with saturated fat, even though its coefficient is lower at 9.7, its grams in a drink can range between 0 and 20. This means per gram of saturated fat there is 9.7 calories. This model also highlights that caffeine does have an influence of calories, but since its coefficient is so low at 0.045, it will take a large dose of caffeine to result in an impactful amount of calories. An unexpected coefficient is sugar being -1.96. This may be because of sugars strong relationship with carbohydrates, resulting in sugar's correlation being negative. This is seen in the heat map with sugar_g and total_carbs_g correlation being 0.99. By removing carbohydrates and running the model again, sugar's correlation increases to 3.83, indicating that there was a collinear relationship between carbohydrates and sugar. Because of this we can conclude in the new model that per every one gram of sugar, calories will increase by 3.8.
+
+Using Starbucks indicator for a healthy drink, calories. From this we can conclude that if selecting a drink based on calories, drinks with higher calories will contain more fat, sugar and fiber. As mentioned in Part 1, a high amount of fat and sugar is not good for your health, and therefore if a customer were to base their health information just on calories, they should pick a drink that is low in calories as it will contain less fats and sugar. 
+
+Row {.tabset data-height=1400}
+-----
+### **Correlation heat map**
+```{r}
+starbucks_numeric <- starbucks %>% select(sugar_g,saturated_fat_g,trans_fat_g,sodium_mg,total_carbs_g,fiber_g,caffeine_mg, calories)
+cormat <- round(cor(starbucks_numeric),2)
+melted_cormat <- melt(cormat)
+calories_cor <- melted_cormat %>% filter(Var1 == "calories")
+calories_cor
+```
+
+```{r}
+corr_map <- ggplot(data = melted_cormat, aes(x = Var1, y = Var2, fill = value, text = paste("Value: ", round(value, 2)))
+  ) +
+  geom_tile()
+corr_map <- ggplotly(corr_map)
+corr_map <- layout(corr_map, width = 1400, height = 1000)  
+corr_map
+```
+
+### **Single variable linear modelling**
+```{r}
+calories_model <- lm(calories ~ sugar_g, data  = starbucks)
+tidy(calories_model)
+
+calories_model <- lm(calories ~ saturated_fat_g, data  = starbucks)
+tidy(calories_model)
+
+calories_model <- lm(calories ~ trans_fat_g, data  = starbucks)
+tidy(calories_model)
+
+calories_model <- lm(calories ~ sodium_mg, data  = starbucks)
+tidy(calories_model)
+
+calories_model <- lm(calories ~ total_carbs_g, data  = starbucks)
+tidy(calories_model)
+
+calories_model <- lm(calories ~ fiber_g, data  = starbucks)
+tidy(calories_model)
+
+calories_model <- lm(calories ~ caffeine_mg, data  = starbucks)
+tidy(calories_model)
+```
+
+### **Multivariable Linear modelling**
+```{r}
+step(lm(calories~sugar_g+saturated_fat_g+trans_fat_g+sodium_mg+total_carbs_g+fiber_g+caffeine_mg, data = starbucks), direction = "forward" )
+
+multi_linear_model<-lm(calories~sugar_g+saturated_fat_g+trans_fat_g+sodium_mg+total_carbs_g+fiber_g+caffeine_mg, data = starbucks)
+summary(multi_linear_model)
+
+multi_linear_model<-lm(calories~sugar_g+saturated_fat_g+trans_fat_g+sodium_mg+fiber_g+caffeine_mg, data = starbucks)
+summary(multi_linear_model)
+```
+
+Part 3
+=======================================================================
+{.sidebar data-width=500}
+-------------------------------------
+> **Types of milk affecting health**
+
+At Starbucks, they offer a variety of options for milk. Because of the range of milks, does choosing a certain type of milk influence the healthiness of the drink. In the Starbucks data set the types of milk are stored as dummy variables between 0 and 5, where: 0 = None, 1 = Non fat, 2 = 2%, 3 = Soy, 4 = Coconut, 5 = Whole. One of the main things that would be influenced by the changes in types of milk are the amount of fat. Another factor that may be changed is the sugar contents, as soy milk and coconut milk may contain more sugar.
+
+> **Types of Milk's fat level**
+
+Looking at the boxplot of the different types of milk's fat per ml, drinks with no milk have 0 fat except for a few outliers. These outliers are likely drinks where whip was added, which explains the increase in fat. The Non fat milk has a median of 0.0141, indicating that it is a very good substitute for milk if you want no fat, however, it does still have some fat present with it reaching up to 0.04 g per ml of fat. 2% milk, Soy, and Coconut all perform similar in terms of fat levels, and whole milk has the most fat, with a median of 0.0226. Therefore the best milk for health is to have no milk, however if you want a type of milk in your drink Non fat is the best, containing the least fat overall.  
+
+> **Types of Milk's sugar level**
+
+The boxplot shows that no milk has the least amount of sugar with a mean of 0.0297. Similar to fat it has a few outliers likely due to whip. Comparing the types of milk, all the milks have a similar range and medians for sugar per ml. Therefore if you do want milk in your drink, the choice of milk is likely not to affect the sugar levels, however no milk is still the healthiest.
+
+> **Types of Milk decision tree**
+
+To further explore the relationship between fat, sugar, and the type of milk, a decision tree can be used to see which type of milk is the healthiest based on sugar and fat. From the scatter plot there are clumps of no milk together, and Non fat milk together, while the other types of milks are scattered together. This means that running an effective decision tree may be hard, due to the difficulty of making effective boundaries.
+
+Running a decision tree, it manages to get an accuracy of 0.593. This is alright, considering that 2% milk, Soy, and Coconut all perform similarly in terms of fat and sugar. This decision tree classification shows that if you want a low fat drink (<0.0022 grams per ml) you want either no milk or No fat. The model also shows that the level of sugar is not very important when classifying types of milk, and only helps differentiate between 2% milk, Soy, Coconut, and Whole milk.
+
+Running a more complex decision tree you can achieve an accuracy of 0.872428. This is substantially better than the previous model. However this model is likely to over fit, meaning that if more drinks are added to the data set and you were to classify based on these parameters, they are likely to be classified incorrectly.
+Overall, We can see that by classifying, the best types of milk to choose for your health based on fat and sugar levels are no milk or Non fat. 
+
+
+Row {.tabset data-height=1650}
+-----
+
+```{r}
+starbucks_milk_count <- starbucks %>%
+  group_by(milk)%>%
+  count()
+```
+
+### **Types of Milk's fat level**
+
+#### **Boxplot**
+
+```{r}
+boxplot <- ggplot(starbucks, aes(x = factor(milk), y = total_fat_g_per_ml)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Total Fat by Milk Type", x = "Milk Type", y = "Total Fat (g per ml)") +
+  theme_classic()
+
+interactive_boxplot <- ggplotly(boxplot)
+interactive_boxplot
+```
+
+#### **Summary**
+
+```{r}
+summary_table <- starbucks %>%
+  group_by(milk) %>%
+  summarise(
+    Mean = mean(total_fat_g_per_ml, na.rm = TRUE),
+    Median = median(total_fat_g_per_ml, na.rm = TRUE),
+    Min = min(total_fat_g_per_ml, na.rm = TRUE),
+    Max = max(total_fat_g_per_ml, na.rm = TRUE),
+    SD = sd(total_fat_g_per_ml, na.rm = TRUE)
+  )
+print(summary_table)
+```
+
+### **Types of Milk's sugar level**
+
+#### **Boxplot**
+
+```{r}
+boxplot <- ggplot(starbucks, aes(x = factor(milk), y = sugar_g_per_ml)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Total Sugar by Milk Type", x = "Milk Type", y = "Total Sugar (g per ml)") +
+  theme_classic()
+interactive_boxplot <- ggplotly(boxplot)
+interactive_boxplot
+```
+
+#### **Summary**
+
+```{r}
+summary_table <- starbucks %>%
+  group_by(milk) %>%
+  summarise(
+    Mean = mean(sugar_g_per_ml, na.rm = TRUE),
+    Median = median(sugar_g_per_ml, na.rm = TRUE),
+    Min = min(sugar_g_per_ml, na.rm = TRUE),
+    Max = max(sugar_g_per_ml, na.rm = TRUE),
+    SD = sd(sugar_g_per_ml, na.rm = TRUE)
+  )
+print(summary_table)
+```
+### **Types of Milk decision tree**
+
+#### **Scatter plot of Fat and Sugar by Milk**
+
+```{r}
+starbucks_fat_sugar <- starbucks %>%
+  group_by(product_name, milk) %>%
+  summarize(average_fat_per_ml = mean(total_fat_g_per_ml, na.rm = TRUE),
+  average_sugar_per_ml = mean(sugar_g_per_ml, na.rm = TRUE))
+
+ggplot(starbucks_fat_sugar, aes(x = average_fat_per_ml, y = average_sugar_per_ml, color = factor(milk))) +
+  geom_point() +
+  labs(x = "Fat (grams)", y = "Sugar", title = "Scatterplot of Fat vs. Sugar") +
+  scale_color_manual(values = c("0" = "light blue", "1" = "dark green", "2" = "orange", "3" = "red", "4" = "pink", "5" = "black"), labels = c("None", "Non fat", "2%", "Soy", "Coconut", "Whole")) +
+  theme_minimal()
+```
+
+#### **Decision tree to predict type of milk based on fat and sugar**
+
+```{r}
+df_rp <- rpart(milk~average_sugar_per_ml+average_fat_per_ml, data=starbucks_fat_sugar)
+rpart.plot(df_rp)
+df_rp <- rpart(milk~average_sugar_per_ml+average_fat_per_ml, data=starbucks_fat_sugar, method = "class")
+```
+
+#### **Confusion matrix of decision tree**
+
+```{r}
+predicted_milk <- predict(df_rp, starbucks_fat_sugar, type = "class")
+confusion_matrix <- table(predicted_milk, starbucks_fat_sugar$milk)
+confusion_matrix
+```
+#### **Accuracy of confusion matrix of decision tree**
+```{r}
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+accuracy
+```
+
+#### **Confusion matrix of more complex decision tree**
+
+```{r}
+df_rp <- rpart(milk~average_sugar_per_ml+average_fat_per_ml, data=starbucks_fat_sugar, method = "class", cp = 0.001, minsplit = 5, minbucket = 1)
+predicted_milk <- predict(df_rp, starbucks_fat_sugar, type = "class")
+confusion_matrix <- table(predicted_milk, starbucks_fat_sugar$milk)
+confusion_matrix
+```
+
+#### **Accuracy of confusion matrix of complex decision tree**
+
+```{r}
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+accuracy
+```
+
+Conclusion
+=======================================================================
+
+Row {data-width = 600}
+-----
+### **Conclusion**
+
+Starbucks claims to now be selling healthy drinks. They base this off the low calories in their drinks. But how healthy are their drinks. As seen within Part 1, Part 2 and Part 3 of this report, there are a number of factors that can influence whether a drink is healthy or not. Firstly, as seen in Part 1, they best type of drink to consume at Starbucks to be healthy is a tea or coffee, due to them being low in fat, sugar, calories and cholesterol. The serving size of drinks also plays a massive role in the health of a drink, as the bigger the drink the more macronutrients you are consuming. Part 2, highlights that Starbucks advertising, that a drink is healthy due to its calories, is partialy true, as fats and sugars, which are unhealthy, make up a large proportion of the calories in a drink. Therefore having a drink with low calories mean you are likely to have a low fat and sugar intake. Finally, Part 3 shows, that the type of milk can play a big role in whether a drink is healthy are not. Here it is found that no milk and Non fat milk are the healthiest choice.
+From all this we can conclude that if a customer wants get a healthy drink at Starbucks they should get a tea or coffee with no milk, or Non fat milk, and with no Whip. Due to teas and coffee's having being low in fats, sugars, and calories the customer can get any size of drink and still have a healthy drink from Starbucks. Other than these drinks, Starbucks drinks are not a healthy choice, being high in fats and sugar, and therefore drink choice should be deliberated before purchasing.  
+
+### **References**
+
+[1] (2021). Retrieved from [https://github.com/rfordatascience/tidytuesday/blob/master/data/2021/2021-12-21/readme.md](https://github.com/rfordatascience/tidytuesday/blob/master/data/2021/2021-12-21/readme.md)
+
+[2] (2023). Retrieved from [https://www.cdc.gov/healthyweight/healthy_eating/index.html#:~:text=Emphasizes%20fruits%2C%20vegetables%2C%20whole%20grains,%2C%20trans%20fats%2C%20and%20cholesterol](https://www.cdc.gov/healthyweight/healthy_eating/index.html#:~:text=Emphasizes%20fruits%2C%20vegetables%2C%20whole%20grains,%2C%20trans%20fats%2C%20and%20cholesterol).
+
+[3] (N.d.). Retrieved from [https://nz.news.yahoo.com/starbucks-bogo-pumpkin-spice-lattes-155205201.html?guccounter=1&guce_referrer=aHR0cHM6Ly9sZW5zLmdvb2dsZS5jb20v&guce_referrer_sig=AQAAAFiEHDvEQze9XAA4P6VHxdnkQSifd3h1torQ4M0GrqzHjPV7Ukk1WP_u-xsMxtohr36OSmm6KgFK6vTZd54vYu9cQqxQmX7SMj4ET-nJbke6IztxI9aYRi2vhSpPN9RJzjC9skiHbzg9Pm2DUtj9cncPA1H4URNrjqfPagRYdvbi)
+
+[4] Horan, M. (2018). Retrieved from [https://www.teenvogue.com/story/starbucks-crystal-ball-frappuccino](https://www.teenvogue.com/story/starbucks-crystal-ball-frappuccino)
+
+[5]Starbucks image 1. (n.d.). Retrieved from [https://miro.medium.com/v2/resize:fit:1200/1*nIgYAOgnGhljP-IIEOSbcA.jpeg](https://miro.medium.com/v2/resize:fit:1200/1*nIgYAOgnGhljP-IIEOSbcA.jpeg)
+
+[6] Starbucks. (2023). Retrieved from [https://www.britannica.com/topic/Starbucks](https://www.britannica.com/topic/Starbucks)
+
+[7] R version 4.3.1 (2023-06-16 ucrt) was used to analyze the data (R Core Team, 2023)
+
+[8] RStudio (RStudio Team, 2023) was used to write and execute this report
+
+[9] The tidyverse (Wickham et al., 2023) was used to clean the data
+
+
